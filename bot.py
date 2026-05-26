@@ -126,9 +126,34 @@ def webhook():
 # ═══ Health Check ═══
 @app.route("/", methods=["GET"])
 def health():
-    return jsonify({"status": "running", "mode": "TESTNET" if USE_TESTNET else "LIVE"}), 200
+    return {"status": "running", "mode": "TESTNET" if USE_TESTNET else "LIVE"}, 200
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    try:
+        data = request.get_json(force=True)
+        print(f"Signal received: {data}")
+
+        side   = data.get("side")
+        symbol = data.get("symbol")
+        price  = data.get("price")
+        sl     = data.get("sl")
+        tp     = data.get("tp")
+
+        if not all([side, symbol, price, sl, tp]):
+            return {"status": "error", "message": "Missing fields"}, 400
+
+        if float(sl) == 0 or float(tp) == 0:
+            return {"status": "error", "message": "Invalid SL/TP"}, 400
+
+        result = place_order(symbol, side, price, sl, tp)
+        return result, 200
+
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return {"status": "error", "message": str(e)}, 500
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 8080))
     send_telegram("🤖 Arsalan Scalper Bot started!\nMode: " + ("TESTNET" if USE_TESTNET else "LIVE"))
     app.run(host="0.0.0.0", port=port)
