@@ -15,7 +15,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 ACCOUNT_SIZE     = 500
 RISK_PERCENT     = 1.5
 USE_TESTNET      = True
-BASE_URL         = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybit.com"
+BASE_URL = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybit.com"
 
 def send_telegram(msg):
     try:
@@ -41,35 +41,50 @@ def calculate_qty(price, sl):
 
 def place_order(symbol, side, price, sl, tp):
     try:
-        qty = calculate_qty(price, sl)
-        ts  = str(int(time.time() * 1000))
-        p   = {
-            "api_key":       BYBIT_API_KEY,
-            "symbol":        symbol,
-            "side":          side,
-            "order_type":    "Market",
-            "qty":           str(qty),
-            "time_in_force": "GoodTillCancel",
-            "stop_loss":     str(sl),
-            "take_profit":   str(tp),
-            "timestamp":     ts,
-            "recv_window":   "5000"
+        qty       = calculate_qty(price, sl)
+        ts        = str(int(time.time() * 1000))
+        recv_window = "5000"
+
+        body = {
+            "category":   "linear",
+            "symbol":     symbol,
+            "side":       side,
+            "orderType":  "Market",
+            "qty":        str(qty),
+            "stopLoss":   str(sl),
+            "takeProfit": str(tp),
+            "timeInForce": "GoodTillCancel"
         }
-        param_str = "&".join(f"{k}={v}" for k, v in sorted(p.items()))
-        sig = hmac.new(
+
+        body_str  = json.dumps(body, separators=(',', ':'))
+        sign_str  = ts + BYBIT_API_KEY + recv_window + body_str
+        signature = hmac.new(
             BYBIT_API_SECRET.encode(),
-            param_str.encode(),
+            sign_str.encode(),
             hashlib.sha256
         ).hexdigest()
-        p["sign"] = sig
+
+        headers = {
+            "Content-Type":    "application/json",
+            "X-BAPI-API-KEY":  BYBIT_API_KEY,
+            "X-BAPI-TIMESTAMP": ts,
+            "X-BAPI-SIGN":     signature,
+            "X-BAPI-RECV-WINDOW": recv_window
+        }
 
         r = requests.post(
-            f"{BASE_URL}/v2/private/order/create",
-            data=p, timeout=10
-        ).json()
-        print(f"Bybit response: {r}")
+            f"{BASE_URL}/v5/order/create",
+            headers=headers,
+            data=body_str,
+            timeout=10
+        )
 
-        if r.get("ret_code") == 0:
+        print(f"Status code: {r.status_code}")
+        print(f"Response: {r.text}")
+
+        result = r.json()
+
+        if result.get("retCode") == 0:
             send_telegram(
                 f"✅ <b>TRADE EXECUTED</b>\n"
                 f"─────────────────\n"
@@ -85,14 +100,14 @@ def place_order(symbol, side, price, sl, tp):
             )
             return {"status": "success", "qty": qty}
         else:
-            send_telegram(f"❌ Order FAILED: {r.get('ret_msg')}")
-            return {"status": "error", "message": r.get("ret_msg")}
+            msg = f"❌ Order FAILED: {result.get('retMsg')}"
+            send_telegram(msg)
+            return {"status": "error", "message": result.get("retMsg")}
 
     except Exception as e:
         send_telegram(f"❌ Bot error: {str(e)}")
         print(f"Place order error: {e}")
         return {"status": "error", "message": str(e)}
-
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({"status": "running", "version": "6", "mode": "TESTNET" if USE_TESTNET else "LIVE"})
