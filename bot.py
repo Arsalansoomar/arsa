@@ -91,15 +91,23 @@ def place_order(symbol, side, price, sl, tp):
 def index():
     return jsonify({"status": "running", "mode": "TESTNET" if USE_TESTNET else "LIVE"})
 
+@app.route("/test", methods=["GET"])
+def test():
+    send_telegram("🧪 Test message from Arsalan Scalper Bot! Bot is working ✅")
+    return jsonify({"status": "test sent to telegram"})
+
+@app.route("/testwebhook", methods=["GET"])
+def testwebhook():
+    result = place_order("BTCUSDT", "Buy", "50000", "49000", "51000")
+    return jsonify(result)
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        # Read raw bytes and decode
         raw_bytes = request.data
         raw_str   = raw_bytes.decode("utf-8").strip()
-        print(f"Raw received: {raw_str}")
+        print(f"Raw received: {repr(raw_str)}")
 
-        # Parse JSON
         data = json.loads(raw_str)
         print(f"Parsed data: {data}")
 
@@ -113,7 +121,6 @@ def webhook():
 
         if not all([side, symbol, price, sl, tp]):
             return jsonify({"status": "error", "message": "Missing fields"}), 400
-
         if float(sl) == 0 or float(tp) == 0:
             return jsonify({"status": "error", "message": "Invalid SL/TP"}), 400
 
@@ -121,22 +128,12 @@ def webhook():
         return jsonify(result)
 
     except json.JSONDecodeError as e:
-        print(f"JSON error: {e} | raw: {request.data}")
+        print(f"JSON error: {e} | raw: {repr(request.data)}")
         return jsonify({"status": "error", "message": f"JSON parse error: {str(e)}"}), 400
 
     except Exception as e:
         print(f"Webhook error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
-
-@app.route("/test", methods=["GET"])
-def test():
-    send_telegram("🧪 Test message from Arsalan Scalper Bot! Bot is working ✅")
-    return jsonify({"status": "test sent to telegram"})
-
-@app.route("/testwebhook", methods=["GET"])
-def testwebhook():
-    result = place_order("BTCUSDT", "Buy", "50000", "49000", "51000")
-    return jsonify(result)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
