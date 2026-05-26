@@ -3,7 +3,7 @@ import hmac
 import hashlib
 import time
 import requests
-from flask import Flask, request
+from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
@@ -15,23 +15,20 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 ACCOUNT_SIZE     = 500
 RISK_PERCENT     = 1.5
 USE_TESTNET      = True
-
-BASE_URL = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybit.com"
+BASE_URL         = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybit.com"
 
 # ═══ Telegram ═══
 def send_telegram(message):
     try:
         if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
-            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-            requests.post(url, json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message,
-                "parse_mode": "HTML"
-            })
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+            )
     except Exception as e:
         print(f"Telegram error: {e}")
 
-# ═══ Bybit Signature ═══
+# ═══ Signature ═══
 def generate_signature(secret, params):
     param_str = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
     return hmac.new(secret.encode(), param_str.encode(), hashlib.sha256).hexdigest()
@@ -51,10 +48,9 @@ def calculate_qty(price, sl_price):
 # ═══ Place Order ═══
 def place_order(symbol, side, price, sl, tp):
     try:
-        qty = calculate_qty(price, sl)
+        qty       = calculate_qty(price, sl)
         timestamp = str(int(time.time() * 1000))
-
-        params = {
+        params    = {
             "api_key":       BYBIT_API_KEY,
             "symbol":        symbol,
             "side":          side,
@@ -67,12 +63,11 @@ def place_order(symbol, side, price, sl, tp):
             "recv_window":   "5000"
         }
         params["sign"] = generate_signature(BYBIT_API_SECRET, params)
-
-        response = requests.post(f"{BASE_URL}/v2/private/order/create", data=params)
-        result   = response.json()
+        response       = requests.post(f"{BASE_URL}/v2/private/order/create", data=params)
+        result         = response.json()
 
         if result.get("ret_code") == 0:
-            msg = (
+            send_telegram(
                 f"✅ <b>TRADE EXECUTED</b>\n"
                 f"─────────────────\n"
                 f"📊 Pair:  <b>{symbol}</b>\n"
@@ -85,29 +80,24 @@ def place_order(symbol, side, price, sl, tp):
                 f"─────────────────\n"
                 f"{'🧪 TESTNET' if USE_TESTNET else '🔴 LIVE'}"
             )
-            send_telegram(msg)
             return {"status": "success"}
         else:
-            msg = f"❌ Order FAILED: {result.get('ret_msg')}"
-            send_telegram(msg)
+            send_telegram(f"❌ Order FAILED: {result.get('ret_msg')}")
             return {"status": "error", "message": result.get("ret_msg")}
 
     except Exception as e:
         send_telegram(f"❌ Bot error: {str(e)}")
         return {"status": "error", "message": str(e)}
 
-# ═══ Health Check ═══
+# ═══ Routes ═══
 @app.route("/", methods=["GET"])
 def health():
-    return {"status": "running", "mode": "TESTNET" if USE_TESTNET else "LIVE"}, 200
+    return jsonify({"status": "running", "mode": "TESTNET" if USE_TESTNET else "LIVE"})
 
-# ═══ Webhook ═══
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data = request.get_json(force=True)
-        print(f"Received: {data}")
-
+        data   = request.get_json(force=True)
         side   = data.get("side")
         symbol = data.get("symbol")
         price  = data.get("price")
@@ -115,18 +105,11 @@ def webhook():
         tp     = data.get("tp")
 
         if not all([side, symbol, price, sl, tp]):
-            return {"status": "error", "message": "Missing fields"}, 400
-
+            return jsonify({"status": "error", "message": "Missing fields"}), 400
         if float(sl) == 0 or float(tp) == 0:
-            return {"status": "error", "message": "Invalid SL/TP"}, 400
+            return jsonify({"status": "error", "message": "Invalid SL/TP"}), 400
 
-        result = place_order(symbol, side, price, sl, tp)
-        return result, 200
+        return jsonify(place_order(symbol, side, price, sl, tp)), 200
 
     except Exception as e:
-        print(f"Webhook error: {e}")
-        return {"status": "error", "message": str(e)}, 500
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+        return jsonify({"status": "error", "message": str(e)}), 500
