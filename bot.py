@@ -2,7 +2,7 @@ import os
 import hmac
 import hashlib
 import time
-import json
+import json  # v5
 import requests
 from flask import Flask, request, jsonify
 
