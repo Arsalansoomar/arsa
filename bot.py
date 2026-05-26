@@ -8,10 +8,10 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 # ═══ CONFIG ═══
-BYBIT_API_KEY    = os.environ.get("8d4ubDwvpbM3nUmssv", "")
-BYBIT_API_SECRET = os.environ.get("FqJhUMNx3CWU8SjUrUynleWNoGoSibtQvkMf", "")
-TELEGRAM_TOKEN   = os.environ.get("8851557826:AAEyqMuQJGrQ6OGzf2Ky3tNadGRXyvCbrtw", "")
-TELEGRAM_CHAT_ID = os.environ.get("Sainarsalan_bot", "")
+BYBIT_API_KEY    = os.environ.get("BYBIT_API_KEY", "")
+BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET", "")
+TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 ACCOUNT_SIZE     = 500
 RISK_PERCENT     = 1.5
 USE_TESTNET      = True
