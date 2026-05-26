@@ -97,19 +97,26 @@ def health():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        data   = request.get_json(force=True)
+        raw  = request.data.decode("utf-8")
+        raw  = raw.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
+        import json
+        data = json.loads(raw)
+
         side   = data.get("side")
         symbol = data.get("symbol")
         price  = data.get("price")
         sl     = data.get("sl")
         tp     = data.get("tp")
 
+        print(f"Received: side={side} symbol={symbol} price={price} sl={sl} tp={tp}")
+
         if not all([side, symbol, price, sl, tp]):
             return jsonify({"status": "error", "message": "Missing fields"}), 400
         if float(sl) == 0 or float(tp) == 0:
             return jsonify({"status": "error", "message": "Invalid SL/TP"}), 400
 
-        return jsonify(place_order(symbol, side, price, sl, tp)), 200
+        return jsonify(place_order(symbol, side, price, sl, tp))
 
     except Exception as e:
+        print(f"Webhook error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
