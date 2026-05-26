@@ -2,12 +2,12 @@ import os
 import hmac
 import hashlib
 import time
+import json
 import requests
 from flask import Flask, request, jsonify
 
 app = Flask(__name__)
 
-# ═══ CONFIG ═══
 BYBIT_API_KEY    = os.environ.get("BYBIT_API_KEY", "")
 BYBIT_API_SECRET = os.environ.get("BYBIT_API_SECRET", "")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
@@ -17,56 +17,52 @@ RISK_PERCENT     = 1.5
 USE_TESTNET      = True
 BASE_URL         = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybit.com"
 
-# ═══ Telegram ═══
-def send_telegram(message):
+def send_telegram(msg):
     try:
         if TELEGRAM_TOKEN and TELEGRAM_CHAT_ID:
             requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-                json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
+                json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
+                timeout=5
             )
     except Exception as e:
         print(f"Telegram error: {e}")
 
-# ═══ Signature ═══
-def generate_signature(secret, params):
-    param_str = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
-    return hmac.new(secret.encode(), param_str.encode(), hashlib.sha256).hexdigest()
-
-# ═══ Position Size ═══
-def calculate_qty(price, sl_price):
+def calculate_qty(price, sl):
     try:
-        risk_amount = ACCOUNT_SIZE * (RISK_PERCENT / 100)
-        sl_distance = abs(float(price) - float(sl_price))
-        sl_percent  = sl_distance / float(price)
-        qty = risk_amount / (float(price) * sl_percent)
-        return round(qty, 2)
+        risk = ACCOUNT_SIZE * (RISK_PERCENT / 100)
+        dist = abs(float(price) - float(sl)) / float(price)
+        if dist == 0:
+            return 1.0
+        return round(risk / (float(price) * dist), 2)
     except Exception as e:
         print(f"Qty error: {e}")
         return 1.0
 
-# ═══ Place Order ═══
 def place_order(symbol, side, price, sl, tp):
     try:
-        qty       = calculate_qty(price, sl)
-        timestamp = str(int(time.time() * 1000))
-        params    = {
+        qty = calculate_qty(price, sl)
+        ts  = str(int(time.time() * 1000))
+        p   = {
             "api_key":       BYBIT_API_KEY,
             "symbol":        symbol,
             "side":          side,
             "order_type":    "Market",
-            "qty":           qty,
+            "qty":           str(qty),
             "time_in_force": "GoodTillCancel",
-            "stop_loss":     sl,
-            "take_profit":   tp,
-            "timestamp":     timestamp,
+            "stop_loss":     str(sl),
+            "take_profit":   str(tp),
+            "timestamp":     ts,
             "recv_window":   "5000"
         }
-        params["sign"] = generate_signature(BYBIT_API_SECRET, params)
-        response       = requests.post(f"{BASE_URL}/v2/private/order/create", data=params)
-        result         = response.json()
+        param_str = "&".join(f"{k}={v}" for k, v in sorted(p.items()))
+        sig = hmac.new(BYBIT_API_SECRET.encode(), param_str.encode(), hashlib.sha256).hexdigest()
+        p["sign"] = sig
 
-        if result.get("ret_code") == 0:
+        r = requests.post(f"{BASE_URL}/v2/private/order/create", data=p, timeout=10).json()
+        print(f"Bybit response: {r}")
+
+        if r.get("ret_code") == 0:
             send_telegram(
                 f"✅ <b>TRADE EXECUTED</b>\n"
                 f"─────────────────\n"
@@ -80,43 +76,63 @@ def place_order(symbol, side, price, sl, tp):
                 f"─────────────────\n"
                 f"{'🧪 TESTNET' if USE_TESTNET else '🔴 LIVE'}"
             )
-            return {"status": "success"}
+            return {"status": "success", "qty": qty}
         else:
-            send_telegram(f"❌ Order FAILED: {result.get('ret_msg')}")
-            return {"status": "error", "message": result.get("ret_msg")}
+            msg = f"❌ Order FAILED: {r.get('ret_msg')}"
+            send_telegram(msg)
+            return {"status": "error", "message": r.get("ret_msg")}
 
     except Exception as e:
         send_telegram(f"❌ Bot error: {str(e)}")
+        print(f"Place order error: {e}")
         return {"status": "error", "message": str(e)}
 
-# ═══ Routes ═══
 @app.route("/", methods=["GET"])
-def health():
+def index():
     return jsonify({"status": "running", "mode": "TESTNET" if USE_TESTNET else "LIVE"})
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        import json
-        raw  = request.data
-        data = json.loads(raw)
-        
-        print(f"Raw data: {raw}")
-        print(f"Parsed: {data}")
+        # Read raw bytes and decode
+        raw_bytes = request.data
+        raw_str   = raw_bytes.decode("utf-8").strip()
+        print(f"Raw received: {raw_str}")
 
-        side   = data.get("side")
-        symbol = data.get("symbol")
-        price  = data.get("price")
-        sl     = data.get("sl")
-        tp     = data.get("tp")
+        # Parse JSON
+        data = json.loads(raw_str)
+        print(f"Parsed data: {data}")
+
+        side   = str(data.get("side",   "")).strip()
+        symbol = str(data.get("symbol", "")).strip()
+        price  = str(data.get("price",  "")).strip()
+        sl     = str(data.get("sl",     "")).strip()
+        tp     = str(data.get("tp",     "")).strip()
+
+        print(f"side={side} symbol={symbol} price={price} sl={sl} tp={tp}")
 
         if not all([side, symbol, price, sl, tp]):
             return jsonify({"status": "error", "message": "Missing fields"}), 400
+
         if float(sl) == 0 or float(tp) == 0:
             return jsonify({"status": "error", "message": "Invalid SL/TP"}), 400
 
-        return jsonify(place_order(symbol, side, price, sl, tp))
+        result = place_order(symbol, side, price, sl, tp)
+        return jsonify(result)
+
+    except json.JSONDecodeError as e:
+        print(f"JSON error: {e} | raw: {request.data}")
+        return jsonify({"status": "error", "message": f"JSON parse error: {str(e)}"}), 400
 
     except Exception as e:
         print(f"Webhook error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/test", methods=["GET"])
+def test():
+    send_telegram("🧪 Test message from Arsalan Scalper Bot! Bot is working ✅")
+    return jsonify({"status": "test sent to telegram"})
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
