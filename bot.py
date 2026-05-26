@@ -15,7 +15,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 ACCOUNT_SIZE     = 500
 RISK_PERCENT     = 1.5
 USE_TESTNET      = True
-BASE_URL = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybit.com"
+BASE_URL = "https://api-testnet.bybit.com" if USE_TESTNET else "https://api.bybitglobal.com"
 
 def send_telegram(msg):
     try:
