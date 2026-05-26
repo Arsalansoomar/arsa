@@ -133,6 +133,11 @@ def test():
     send_telegram("🧪 Test message from Arsalan Scalper Bot! Bot is working ✅")
     return jsonify({"status": "test sent to telegram"})
 
+@app.route("/testwebhook", methods=["GET"])
+def testwebhook():
+    result = place_order("BTCUSDT", "Buy", "50000", "49000", "51000")
+    return jsonify(result)
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
