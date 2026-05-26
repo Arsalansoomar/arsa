@@ -97,18 +97,18 @@ def health():
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        raw  = request.data.decode("utf-8")
-        raw  = raw.replace("\u201c", '"').replace("\u201d", '"').replace("\u2018", "'").replace("\u2019", "'")
         import json
+        raw  = request.data
         data = json.loads(raw)
+        
+        print(f"Raw data: {raw}")
+        print(f"Parsed: {data}")
 
         side   = data.get("side")
         symbol = data.get("symbol")
         price  = data.get("price")
         sl     = data.get("sl")
         tp     = data.get("tp")
-
-        print(f"Received: side={side} symbol={symbol} price={price} sl={sl} tp={tp}")
 
         if not all([side, symbol, price, sl, tp]):
             return jsonify({"status": "error", "message": "Missing fields"}), 400
